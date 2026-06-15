@@ -9,10 +9,12 @@ const CFG = {
   groqKey:    process.env.GROQ_API_KEY,
   privateKey: process.env.WALLET_PRIVATE_KEY,
   rpcUrl:     process.env.RPC_URL         || 'https://api.mainnet-beta.solana.com',
-  tradeUSDC:  parseFloat(process.env.TRADE_SIZE_USD     || '2'),
-  maxUSDC:    parseFloat(process.env.MAX_TRADE_SIZE_USD || '10'),
-  stopLoss:   parseFloat(process.env.STOP_LOSS_PCT      || '5'),
-  dailyLoss:  parseFloat(process.env.DAILY_LOSS_PCT     || '10'),
+  tradeUSDC:  parseFloat(process.env.TRADE_SIZE_USD     || '5'),
+  maxUSDC:    parseFloat(process.env.MAX_TRADE_SIZE_USD || '20'),
+  stopLoss:   parseFloat(process.env.STOP_LOSS_PCT      || '20'),
+  dailyLoss:  parseFloat(process.env.DAILY_LOSS_PCT     || '20'),
+  takePct:    parseFloat(process.env.TAKE_PROFIT_PCT    || '3.0'),
+  slPct:      parseFloat(process.env.STOP_LOSS_TRADE_PCT|| '1.5'),
   minConf:    parseFloat(process.env.MIN_CONFIDENCE     || '0.62'),
   interval:   parseInt  (process.env.INTERVAL_SECONDS   || '30'),
   slippage:   parseInt  (process.env.SLIPPAGE_BPS       || '100'),
@@ -276,8 +278,8 @@ async function runCycle(brain, n) {
     const shouldSell =
       (sig.dir==='SELL' && sig.conf>0.55) ||
       (sig.dir==='HOLD' && sig.conf<0.45 && priceChange<0) ||
-      priceChange >= 1.5 ||
-      priceChange <= -2.0 ||
+      priceChange >= CFG.takePct ||
+      priceChange <= -CFG.slPct ||
       (parseFloat(holdTime) > 10 && priceChange < 0.3);
 
     log(`Position: ${pos.token} @ $${pos.entryPrice.toFixed(5)} · now $${currentPrice.toFixed(5)} · ${priceChange>=0?'+':''}${priceChange.toFixed(3)}% · held ${holdTime}m`,'TRADE');
