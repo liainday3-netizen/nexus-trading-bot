@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+
+# Runtime state (keep locally, don't overwrite on deploy)
+brain.json
+nexus.log
+*.log
+
+# OS
+.DS_Store
