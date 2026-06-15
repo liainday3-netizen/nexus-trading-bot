@@ -1,0 +1,21 @@
+{
+  "name": "nexus-trading-bot",
+  "version": "1.0.0",
+  "description": "Nexus — Solana AI trading bot using Jupiter DEX",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "DRY_RUN=true node bot.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.91.1",
+    "bs58": "^5.0.0",
+    "dotenv": "^17.4.2",
+    "groq-sdk": "^1.2.1",
+    "node-fetch": "^3.3.2",
+    "rpc-websockets": "^7.5.1"
+  }
+}
