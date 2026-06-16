@@ -9,6 +9,7 @@
  */
 
 // ── Load .env ─────────────────────────────────────────────────
+import axios from 'axios';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 try { require('dotenv').config(); } catch {}
@@ -91,8 +92,7 @@ function createJupiterFeed(tokens) {
 
   async function poll() {
     try {
-      const res  = await fetch(`https://price.jup.ag/v6/price?ids=${tokens.join(',')}`);
-      const json = await res.json();
+      const { data: json } = await axios.get(`https://price.jup.ag/v6/price?ids=${tokens.join(',')}`);
       Object.entries(json.data || {}).forEach(([symbol, data]) => {
         if (data.price && data.price > 0) {
           emit('tick', { symbol, price: data.price, change24h: data.priceChange24h || 0, ts: Date.now() });
@@ -470,14 +470,11 @@ function createExecutor(wallet, risk, brain) {
         BONK: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
       };
       const amount    = Math.floor(size*1e6);
-      const quoteRes  = await fetch(`https://api.jup.ag/swap/v1/quote?inputMint=${USDC}&outputMint=${MINTS[symbol]||MINTS.SOL}&amount=${amount}&slippageBps=300`);
-      const quote     = await quoteRes.json();
+      const { data: quote } = await axios.get(`https://api.jup.ag/swap/v1/quote?inputMint=${USDC}&outputMint=${MINTS[symbol]||MINTS.SOL}&amount=${amount}&slippageBps=300`);
       if (quote.error) throw new Error(quote.error);
-      const swapRes   = await fetch('https://api.jup.ag/swap/v1/swap', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ quoteResponse:quote, userPublicKey:wallet.address, wrapAndUnwrapSol:true }),
+      const { data: { swapTransaction } } = await axios.post('https://api.jup.ag/swap/v1/swap', {
+        quoteResponse:quote, userPublicKey:wallet.address, wrapAndUnwrapSol:true,
       });
-      const { swapTransaction } = await swapRes.json();
       const { VersionedTransaction } = await import('@solana/web3.js');
       const tx  = VersionedTransaction.deserialize(Buffer.from(swapTransaction,'base64'));
       const sig = await wallet.sendTransaction(tx);
