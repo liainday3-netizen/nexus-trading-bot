@@ -255,7 +255,12 @@ async function runCycle(brain, n) {
   const dd = brain.portfolioPeak>0?Math.max(0,((brain.portfolioPeak-usdc)/brain.portfolioPeak)*100):0;
   const dl = brain.dayStartUSDC>0?Math.max(0,((brain.dayStartUSDC-usdc)/brain.dayStartUSDC)*100):0;
   log(`USDC: $${usdc.toFixed(2)} · DD:${dd.toFixed(2)}%/${CFG.stopLoss}% · Daily:${dl.toFixed(2)}%/${CFG.dailyLoss}%`,'SHIELD');
-  if (!brain.position && (dd>=CFG.stopLoss||dl>=CFG.dailyLoss) && brain.trades>2) { log(`🛡 Shield triggered — halting`,'SHIELD'); saveBrain(brain); process.exit(0); }
+  // SHIELD FIX: halt regardless of open position
+  if ((dd>=CFG.stopLoss||dl>=CFG.dailyLoss) && brain.trades>2) {
+    if (brain.position) log(`🛡 Shield triggered — ${brain.position.token} position still open in wallet (manual close may be needed)`,'SHIELD');
+    log(`🛡 Shield halting — DD ${dd.toFixed(2)}% / Daily ${dl.toFixed(2)}% exceeded limit`,'SHIELD');
+    saveBrain(brain); process.exit(0);
+  }
 
   // 5. Scan all tokens
   log(`Scanning ${Object.keys(TOKENS).join(' · ')}...`,'SCAN');
@@ -401,6 +406,23 @@ async function main() {
   log(`Interval: ${CFG.interval}s · Stop loss: ${CFG.stopLoss}% · Daily limit: ${CFG.dailyLoss}%`,'SYS');
 
   const brain = loadBrain();
+  // ── SESSION BASELINE: reset peak if wallet was topped up since last run ──────
+  if (CFG.privateKey && !CFG.dryRun) {
+    try {
+      const _startPub = getWallet().publicKey.toString();
+      const _startUSDC = await getUSDCBalance(_startPub);
+      if (_startUSDC > 0 && _startUSDC > (brain.portfolioPeak || 0)) {
+        const _prev = brain.portfolioPeak || 0;
+        brain.portfolioStart = _startUSDC;
+        brain.portfolioPeak  = _startUSDC;
+        const _today = new Date().toDateString();
+        brain.dayStart = _today;
+        brain.dayStartUSDC = _startUSDC;
+        log(`Session baseline reset $${_prev.toFixed(2)} -> $${_startUSDC.toFixed(2)} (wallet topped up / fresh start)`,'SHIELD');
+        saveBrain(brain);
+      }
+    } catch(e) { log('Startup balance check: '+e.message,'WARN'); }
+  }
   let cycle = 0;
 
   process.on('SIGINT', () => { log('Shutting down...','SYS'); showStats(brain); saveBrain(brain); process.exit(0); });
