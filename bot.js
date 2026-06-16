@@ -266,17 +266,22 @@ async function runCycle(brain, n) {
   log(`Scanning ${Object.keys(TOKENS).join(' · ')}...`,'SCAN');
   const signals = {};
   for (const sym of Object.keys(TOKENS)) {
+    if (!prices[sym] || prices[sym] <= 0) {
+      log(`  ${sym.padEnd(4)} — no valid price data, skipping`,'WARN');
+      continue;
+    }
     const q = quantumScore(PH[sym], brain.lastFearGreed);
     const pts = PH[sym].length;
     signals[sym] = { ...q, price:prices[sym], pts };
-    log(`  ${sym.padEnd(4)} $${prices[sym].toFixed(5).padStart(10)} · ${q.dir.padEnd(4)} ψ:${q.raw.toFixed(3)} · ${(q.conf*100).toFixed(0)}% · ${q.sigs||'building...'}  [${pts}pts]`,'SCAN');
+    const _pFmt = (p) => p >= 0.01 ? p.toFixed(5) : p >= 0.000001 ? p.toFixed(8) : p.toExponential(3);
+    log(`  ${sym.padEnd(4)} $${_pFmt(prices[sym]).padStart(12)} · ${q.dir.padEnd(4)} ψ:${q.raw.toFixed(3)} · ${(q.conf*100).toFixed(0)}% · ${q.sigs||'building...'}  [${pts}pts]`,'SCAN');
   }
 
   // 6. Check open position — should we SELL?
   if (brain.position) {
     const pos = brain.position;
     const currentPrice = prices[pos.token];
-    const priceChange = ((currentPrice-pos.entryPrice)/pos.entryPrice)*100;
+    const priceChange = pos.entryPrice > 0 ? ((currentPrice-pos.entryPrice)/pos.entryPrice)*100 : 0;
     const holdTime = ((Date.now()-pos.entryTime)/1000/60).toFixed(1);
     const sig = signals[pos.token];
 
@@ -287,7 +292,12 @@ async function runCycle(brain, n) {
       priceChange <= -CFG.slPct ||
       (parseFloat(holdTime) > 10 && priceChange < 0.3);
 
-    log(`Position: ${pos.token} @ $${pos.entryPrice.toFixed(5)} · now $${currentPrice.toFixed(5)} · ${priceChange>=0?'+':''}${priceChange.toFixed(3)}% · held ${holdTime}m`,'TRADE');
+    if (!currentPrice || currentPrice <= 0) {
+      log(`Position: ${pos.token} — current price unavailable, holding`,'WARN');
+      saveBrain(brain); return;
+    }
+    const _pFmtPos = (p) => p >= 0.01 ? p.toFixed(5) : p >= 0.000001 ? p.toFixed(8) : p.toExponential(3);
+    log(`Position: ${pos.token} @ $${_pFmtPos(pos.entryPrice)} · now $${_pFmtPos(currentPrice)} · ${priceChange>=0?'+':''}${priceChange.toFixed(3)}% · held ${holdTime}m`,'TRADE');
 
     if (shouldSell) {
       log(`Closing ${pos.token} position — ${sig.dir} signal · ${priceChange>=0?'+':''}${priceChange.toFixed(3)}%`,'TRADE');
@@ -360,7 +370,12 @@ async function runCycle(brain, n) {
   const tokenMint = TOKENS[bestSym].mint;
 
   try {
-    log(`BUY ${bestSym} with $${size} USDC @ $${bestSig.price.toFixed(5)}`,'TRADE');
+    if (!bestSig.price || bestSig.price <= 0) {
+      log(`BUY aborted — ${bestSym} has no valid price (got ${bestSig.price})`,'WARN');
+      saveBrain(brain); return;
+    }
+    const _pFmtBuy = (p) => p >= 0.01 ? p.toFixed(5) : p >= 0.000001 ? p.toFixed(8) : p.toExponential(3);
+    log(`BUY ${bestSym} with $${size} USDC @ $${_pFmtBuy(bestSig.price)}`,'TRADE');
     const result = await swap(USDC_MINT, tokenMint, usdcAmount, `BUY USDC→${bestSym}`);
 
     brain.position = {
@@ -374,7 +389,7 @@ async function runCycle(brain, n) {
       tokenAmount: result.outAmount,
     };
 
-    log(`✅ BUY confirmed · ${bestSym} @ $${bestSig.price.toFixed(5)} · $${size} in · sig: ${result.sig}`,'TRADE');
+    log(`✅ BUY confirmed · ${bestSym} @ $${_pFmtBuy(bestSig.price)} · $${size} in · sig: ${result.sig}`,'TRADE');
     if (!CFG.dryRun) log(`   https://solscan.io/tx/${result.sig}`,'TRADE');
     log(`Waiting for SELL signal or exit condition...`,'INFO');
   } catch(e) {
