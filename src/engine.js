@@ -504,6 +504,10 @@ function broadcast(msg) {
 }
 
 // Smart price formatter for display
+import dns from 'dns';
+dns.setServers(['8.8.8.8', '1.1.1.1']);
+dns.setDefaultResultOrder('ipv4first');
+
 const fmtP = (p) => !p ? '0' : p >= 0.01 ? p.toFixed(5) : p >= 0.000001 ? p.toFixed(8) : p.toExponential(3);
 const div  = (s) => log.info(`══ ${s} ══`);
 
