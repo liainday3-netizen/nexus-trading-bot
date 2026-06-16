@@ -20,7 +20,7 @@ import WebSocket                                   from 'ws';
 import { Connection, Keypair, PublicKey }          from '@solana/web3.js';
 import bs58                                        from 'bs58';
 import nacl                                        from 'tweetnacl';
-import { decodeUTF8 }                              from 'tweetnacl-util';
+// decodeUTF8 not needed in single-file mode
 
 /* ════════════════════════════════════════════════════════════
    1. LOGGER
