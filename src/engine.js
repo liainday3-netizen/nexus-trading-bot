@@ -90,12 +90,24 @@ function createJupiterFeed(tokens) {
 
   function emit(event, data) { (listeners[event] || []).forEach(fn => fn(data)); }
 
+  const MINTS = {
+    SOL:  'So11111111111111111111111111111111111111112',
+    JUP:  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+    RAY:  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+    BONK: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  };
+  const mintToSymbol = Object.fromEntries(tokens.map(t => [MINTS[t] || t, t]));
+  const mintIds       = tokens.map(t => MINTS[t] || t).join(',');
+
   async function poll() {
     try {
-      const { data: json } = await axios.get(`https://price.jup.ag/v6/price?ids=${tokens.join(',')}`);
-      Object.entries(json.data || {}).forEach(([symbol, data]) => {
-        if (data.price && data.price > 0) {
-          emit('tick', { symbol, price: data.price, change24h: data.priceChange24h || 0, ts: Date.now() });
+      // price.jup.ag/v6 was decommissioned by Jupiter — moved to lite-api.jup.ag/price/v3,
+      // which keys by mint address (not symbol) and returns usdPrice.
+      const { data: json } = await axios.get(`https://lite-api.jup.ag/price/v3?ids=${mintIds}`);
+      Object.entries(json || {}).forEach(([mint, data]) => {
+        const symbol = mintToSymbol[mint] || mint;
+        if (data.usdPrice && data.usdPrice > 0) {
+          emit('tick', { symbol, price: data.usdPrice, change24h: data.priceChange24h || 0, ts: Date.now() });
         }
       });
     } catch (e) { log.warn('Poll failed:', e.message); }
