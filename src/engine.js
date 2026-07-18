@@ -388,7 +388,16 @@ function createRisk(brain) {
     const full = Math.max(0, (winRate*b-(1-winRate))/b);
     const safe = full * 0.10 * (confidence/100);
     const maxP = brain.capital>=500?0.06:brain.capital>=50?0.04:brain.capital>=10?0.03:0.02;
-    return Math.max(0.001, brain.capital * Math.min(safe, maxP));
+    const pctSize = brain.capital * Math.min(safe, maxP);
+    // Bootstrap floor: at low capital + zero starting confidence, the Kelly/confidence
+    // multiplier collapses to ~0, which used to fall back to a fixed $0.001 size that
+    // could never clear the "3x gas cost" viability check below — a permanent deadlock
+    // where the bot never places a first trade, so confidence never grows either.
+    // Floor the size at the smallest trade that clears that bar, capped at 20% of
+    // capital so it stays a bounded, sane risk even on tiny balances.
+    const MIN_VIABLE_TRADE = 0.19;
+    const floor = Math.min(MIN_VIABLE_TRADE, brain.capital * 0.20);
+    return Math.max(floor, pctSize);
   }
 
   function assess() {
