@@ -249,12 +249,16 @@ async function createWallet() {
 
   async function sendTransaction(transaction) {
     if (!state.keypair) throw new Error('No private key — cannot sign');
-    const { blockhash } = await state.connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer        = state.keypair.publicKey;
-    transaction.sign(state.keypair);
+    if (transaction.constructor && transaction.constructor.name === 'VersionedTransaction') {
+      transaction.sign([state.keypair]);
+    } else {
+      const { blockhash } = await state.connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer        = state.keypair.publicKey;
+      transaction.sign(state.keypair);
+    }
     const sig = await state.connection.sendRawTransaction(
-      transaction.serialize(), { skipPreflight: false }
+      transaction.serialize(), { skipPreflight: false, maxRetries: 3 }
     );
     await state.connection.confirmTransaction(sig, 'confirmed');
     log.info(`TX confirmed: ${sig.slice(0,8)}...`);
@@ -520,6 +524,21 @@ function createExecutor(wallet, risk, brain) {
     }
 
     // Live swap via Jupiter
+    const withBackoff = async (fn, label, tries = 3) => {
+      let lastErr;
+      for (let i = 0; i < tries; i++) {
+        try { return await fn(); }
+        catch (err) {
+          lastErr = err;
+          const is429 = err.response?.status === 429 || /429/.test(err.message||'');
+          if (!is429 || i === tries-1) throw err;
+          const wait = 800 * Math.pow(2, i);
+          log.warn(`${label} 429 — backing off ${wait}ms (attempt ${i+1}/${tries})`);
+          await new Promise(r => setTimeout(r, wait));
+        }
+      }
+      throw lastErr;
+    };
     try {
       const USDC  = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
       const MINTS = {
@@ -528,15 +547,21 @@ function createExecutor(wallet, risk, brain) {
         RAY:  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
         BONK: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
       };
-      const amount    = Math.floor(size*1e6);
-      const { data: quote } = await axios.get(`https://api.jup.ag/swap/v1/quote?inputMint=${USDC}&outputMint=${MINTS[symbol]||MINTS.SOL}&amount=${amount}&slippageBps=300`);
+      const amount = Math.floor(size*1e6);
+      const { data: quote } = await withBackoff(
+        () => axios.get(`https://api.jup.ag/swap/v1/quote?inputMint=${USDC}&outputMint=${MINTS[symbol]||MINTS.SOL}&amount=${amount}&slippageBps=300`),
+        `${symbol} quote`
+      );
       if (quote.error) throw new Error(quote.error);
-      const { data: { swapTransaction } } = await axios.post('https://api.jup.ag/swap/v1/swap', {
-        quoteResponse:quote, userPublicKey:wallet.address, wrapAndUnwrapSol:true,
-      });
+      const { data: { swapTransaction } } = await withBackoff(
+        () => axios.post('https://api.jup.ag/swap/v1/swap', {
+          quoteResponse:quote, userPublicKey:wallet.address, wrapAndUnwrapSol:true,
+        }),
+        `${symbol} swap-build`
+      );
       const { VersionedTransaction } = await import('@solana/web3.js');
       const tx  = VersionedTransaction.deserialize(Buffer.from(swapTransaction,'base64'));
-      const sig = await wallet.sendTransaction(tx);
+      const sig = await withBackoff(() => wallet.sendTransaction(tx), `${symbol} send`);
       log.info(`LIVE ${symbol} @ $${fmtPrice(opp.price)} | sig: ${sig.slice(0,8)}...`);
       log.info(`   https://solscan.io/tx/${sig}`);
       return { symbol, chain:'Solana', size, pnl:-gas, won:true, gas, mode:'LIVE', status:'FILLED', txSignature:sig, ts:Date.now() };
