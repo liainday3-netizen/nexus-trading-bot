@@ -211,12 +211,16 @@ async function createWallet() {
 
   async function sendTransaction(transaction) {
     if (!state.keypair) throw new Error('No private key — cannot sign');
-    const { blockhash } = await state.connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.feePayer        = state.keypair.publicKey;
-    transaction.sign(state.keypair);
+    if (transaction.constructor && transaction.constructor.name === 'VersionedTransaction') {
+      transaction.sign([state.keypair]);
+    } else {
+      const { blockhash } = await state.connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer        = state.keypair.publicKey;
+      transaction.sign(state.keypair);
+    }
     const sig = await state.connection.sendRawTransaction(
-      transaction.serialize(), { skipPreflight: false }
+      transaction.serialize(), { skipPreflight: false, maxRetries: 3 }
     );
     await state.connection.confirmTransaction(sig, 'confirmed');
     log.info(`TX confirmed: ${sig.slice(0,8)}...`);
