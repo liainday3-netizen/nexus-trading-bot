@@ -136,9 +136,12 @@ async function createWallet() {
     address:       null,
     solBalance:    0,
     usdcBalance:   0,
+    tokenBalances: { JUP: 0, RAY: 0, BONK: 0 },
+    totalEquity:   0,
+    solPriceUsd:   0,
     keypair:       null,
     connection:    new Connection(
-      process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+      process.env.SOLANA_RPC_URL || 'https://rpc.ankr.com/solana',
       'confirmed'
     ),
     dappKeypair:   null,
@@ -191,6 +194,27 @@ async function createWallet() {
     state.usdcBalance = 3.00;
   }
 
+  const TOKEN_MINTS = {
+    USDC: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    JUP:  'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+    RAY:  '4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R',
+    BONK: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+  };
+
+  async function fetchLivePrices() {
+    const prices = { SOL: 0, JUP: 0, RAY: 0, BONK: 0 };
+    try {
+      const { data } = await axios.get('https://api.binance.com/api/v3/ticker/price', {
+        params: { symbols: JSON.stringify(['SOLUSDT','JUPUSDT','RAYUSDT','BONKUSDT']) },
+      });
+      data.forEach(({ symbol, price }) => {
+        const sym = symbol.replace('USDT','');
+        if (prices[sym] !== undefined) prices[sym] = +price;
+      });
+    } catch (e) { log.warn('Price fetch for equity calc failed:', e.message); }
+    return prices;
+  }
+
   async function refreshBalances() {
     if (!state.address || state.address === 'SIMULATION') return;
     try {
@@ -198,29 +222,39 @@ async function createWallet() {
       const lamports  = await state.connection.getBalance(pubkey);
       state.solBalance = +(lamports / 1e9).toFixed(6);
       state.usdcBalance = 0;
-      try {
-        const USDC = new PublicKey('EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v');
-        const accs = await state.connection.getParsedTokenAccountsByOwner(pubkey, { mint: USDC });
-        if (accs.value.length > 0) {
-          state.usdcBalance = +(accs.value[0].account.data.parsed.info.tokenAmount.uiAmount ?? 0).toFixed(4);
-        }
-      } catch {}
-      log.info(`Balances — SOL: ${state.solBalance} | USDC: $${state.usdcBalance}`);
+      state.tokenBalances = { JUP: 0, RAY: 0, BONK: 0 };
+      for (const [sym, mint] of Object.entries(TOKEN_MINTS)) {
+        try {
+          const accs = await state.connection.getParsedTokenAccountsByOwner(pubkey, { mint: new PublicKey(mint) });
+          const amt  = accs.value.length > 0
+            ? +(accs.value[0].account.data.parsed.info.tokenAmount.uiAmount ?? 0)
+            : 0;
+          if (sym === 'USDC') state.usdcBalance = +amt.toFixed(4);
+          else state.tokenBalances[sym] = amt;
+        } catch {}
+      }
+      const prices = await fetchLivePrices();
+      state.solPriceUsd = prices.SOL;
+      state.totalEquity = +(
+        state.usdcBalance +
+        state.solBalance * prices.SOL +
+        state.tokenBalances.JUP  * prices.JUP +
+        state.tokenBalances.RAY  * prices.RAY +
+        state.tokenBalances.BONK * prices.BONK
+      ).toFixed(4);
+      log.info(`Balances — SOL: ${state.solBalance} (~$${(state.solBalance*prices.SOL).toFixed(2)}) | USDC: $${state.usdcBalance} | JUP: ${state.tokenBalances.JUP} | RAY: ${state.tokenBalances.RAY} | BONK: ${state.tokenBalances.BONK}`);
+      log.info(`Total equity (live): $${state.totalEquity}`);
     } catch (e) { log.warn('Balance fetch failed:', e.message); }
   }
 
   async function sendTransaction(transaction) {
     if (!state.keypair) throw new Error('No private key — cannot sign');
-    if (transaction.constructor && transaction.constructor.name === 'VersionedTransaction') {
-      transaction.sign([state.keypair]);
-    } else {
-      const { blockhash } = await state.connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer        = state.keypair.publicKey;
-      transaction.sign(state.keypair);
-    }
+    const { blockhash } = await state.connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer        = state.keypair.publicKey;
+    transaction.sign(state.keypair);
     const sig = await state.connection.sendRawTransaction(
-      transaction.serialize(), { skipPreflight: false, maxRetries: 3 }
+      transaction.serialize(), { skipPreflight: false }
     );
     await state.connection.confirmTransaction(sig, 'confirmed');
     log.info(`TX confirmed: ${sig.slice(0,8)}...`);
@@ -236,7 +270,7 @@ async function createWallet() {
     get address()      { return state.address; },
     get solBalance()   { return state.solBalance; },
     get usdcBalance()  { return state.usdcBalance; },
-    get capital()      { return state.usdcBalance > 0 ? state.usdcBalance : 3; },
+    get capital()      { return state.totalEquity > 0 ? state.totalEquity : (state.usdcBalance > 0 ? state.usdcBalance : 3); },
     get shortAddress() {
       if (!state.address || state.address === 'SIMULATION') return 'SIMULATION';
       return `${state.address.slice(0,4)}...${state.address.slice(-4)}`;
