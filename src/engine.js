@@ -47,7 +47,7 @@ function createBinanceFeed(pairs) {
 
   function connect() {
     const streams = pairs.map(p => `${p.toLowerCase()}@ticker`).join('/');
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${streams}`);
+    const ws = new WebSocket(`wss://data-stream.binance.vision/ws/${streams}`);
 
     ws.on('open', () => {
       log.info(`Connected — ${pairs.length} pairs streaming`);
@@ -141,7 +141,7 @@ async function createWallet() {
     solPriceUsd:   0,
     keypair:       null,
     connection:    new Connection(
-      process.env.SOLANA_RPC_URL || 'https://rpc.ankr.com/solana',
+      process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
       'confirmed'
     ),
     dappKeypair:   null,
@@ -204,7 +204,7 @@ async function createWallet() {
   async function fetchLivePrices() {
     const prices = { SOL: 0, JUP: 0, RAY: 0, BONK: 0 };
     try {
-      const { data } = await axios.get('https://api.binance.com/api/v3/ticker/price', {
+      const { data } = await axios.get('https://data-api.binance.vision/api/v3/ticker/price', {
         params: { symbols: JSON.stringify(['SOLUSDT','JUPUSDT','RAYUSDT','BONKUSDT']) },
       });
       data.forEach(({ symbol, price }) => {
